@@ -23,8 +23,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
     int recv_id;
     int num_children;
     MPIR_Treealgo_tree_t my_tree;
-    int vtx_id;
-    int *send_id = NULL;        /* a forwarding rank's last send to each child */
+    int *send_id = NULL;        /* the last send to each child */
     MPIR_CHKLMEM_DECL();
     MPIR_FUNC_ENTER;
 
@@ -40,7 +39,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
     mpi_errno = MPIR_Treealgo_tree_create(rank, size, tree_type, k, root, &my_tree);
     MPIR_ERR_CHECK(mpi_errno);
     num_children = my_tree.num_children;
-    if (my_tree.parent != -1 && num_children > 0) {
+    if (num_children > 0) {
         MPIR_CHKLMEM_MALLOC(send_id, num_children * sizeof(int));
     }
 
@@ -67,6 +66,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
                                             datatype, my_tree.parent, comm,
                                             &ibcast_state->status, sched, 0, NULL, &recv_id);
             MPIR_ERR_CHECK(mpi_errno);
+            int vtx_id;
             MPIR_TSP_sched_cb(&MPII_Ibcast_sched_test_length, ibcast_state, sched, 1, &recv_id,
                               &vtx_id);
 #else
@@ -77,29 +77,22 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
 #endif
         }
 
-        if (num_children && my_tree.parent == -1) {
-            /* The root multicasts to the children. Its multicasts have no dependencies, so they
-             * start in chunk order. */
-            mpi_errno = MPIR_TSP_sched_imcast((char *) buffer + offset * extent, msgsize, datatype,
-                                              ut_int_array(my_tree.children), num_children,
-                                              comm, sched, 0, NULL, &vtx_id);
-            MPIR_ERR_CHECK(mpi_errno);
-        } else if (num_children) {
-            /* A forwarding rank sends to each child on its own, in chunk order: the send of
-             * chunk i waits for its receive and for the send of chunk i-1 to that child. A
-             * multicast chained on the previous one would make every child wait for the slowest
-             * one. */
-            for (int c = 0; c < num_children; c++) {
-                int vtcs[2], nvtcs = 0;
+        /* Send the chunk to each child on its own, in chunk order. A forwarding rank's send of
+         * chunk i waits for its receive and for the send of chunk i-1 to that child; a multicast
+         * chained on the previous one would make every child wait for the slowest one. The
+         * root's sends have no dependencies and start in chunk order. */
+        for (int c = 0; c < num_children; c++) {
+            int vtcs[2], nvtcs = 0;
+            if (my_tree.parent != -1) {
                 vtcs[nvtcs++] = recv_id;
                 if (i > 0) {
                     vtcs[nvtcs++] = send_id[c];
                 }
-                mpi_errno = MPIR_TSP_sched_isend((char *) buffer + offset * extent, msgsize,
-                                                 datatype, ut_int_array(my_tree.children)[c],
-                                                 comm, sched, nvtcs, vtcs, &send_id[c]);
-                MPIR_ERR_CHECK(mpi_errno);
             }
+            mpi_errno = MPIR_TSP_sched_isend((char *) buffer + offset * extent, msgsize, datatype,
+                                             ut_int_array(my_tree.children)[c], comm, sched,
+                                             nvtcs, vtcs, &send_id[c]);
+            MPIR_ERR_CHECK(mpi_errno);
         }
         offset += msgsize;
     }
