@@ -27,7 +27,7 @@ int MPIR_TSP_Iallreduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI
     void *reduce_buffer;        /* Buffer in which allreduced data is present */
     int dtcopy_id = -1;
     int *vtcs = NULL, *recv_id = NULL, *reduce_id = NULL;       /* Arrays to store graph vertex ids */
-    int sink_id;
+    int *bcast_send_id = NULL;  /* the last broadcast send to each child */
     int nvtcs;
     int vtx_id;
     int send_id = -1;
@@ -96,6 +96,7 @@ int MPIR_TSP_Iallreduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI
     if (num_children > 0) {
         MPIR_CHKLMEM_MALLOC(reduce_id, sizeof(int) * num_children);
         MPIR_CHKLMEM_MALLOC(recv_id, sizeof(int) * num_children);
+        MPIR_CHKLMEM_MALLOC(bcast_send_id, sizeof(int) * num_children);
     }
 
     /* do pipelined allreduce */
@@ -186,26 +187,29 @@ int MPIR_TSP_Iallreduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI
             MPIR_ERR_CHECK(mpi_errno);
         }
 
-        /* Broadcast start here */
-        mpi_errno = MPIR_TSP_sched_sink(sched, &sink_id);
-        MPIR_ERR_CHECK(mpi_errno);
-
-        /* Receive message from parent */
-        int bcast_recv_id = sink_id;
+        /* Broadcast. A non-root receives the result of chunk j from the parent once its send of
+         * chunk j is complete, since the result overwrites the data it sent. The sends are
+         * chained, so these receives are also posted in chunk order. At the root, vtcs still
+         * holds the reductions of chunk j. */
         if (my_tree.parent != -1) {
-            mpi_errno =
-                MPIR_TSP_sched_irecv(reduce_address, msgsize, datatype,
-                                     my_tree.parent, comm, sched, 1, &sink_id, &bcast_recv_id);
+            mpi_errno = MPIR_TSP_sched_irecv(reduce_address, msgsize, datatype, my_tree.parent,
+                                             comm, sched, 1, &send_id, &vtx_id);
             MPIR_ERR_CHECK(mpi_errno);
+            vtcs[0] = vtx_id;
+            nvtcs = 1;
         }
 
-        if (num_children) {
-            /* Multicast data to the children */
-            nvtcs = 1;
-            vtcs[0] = bcast_recv_id;
-            mpi_errno = MPIR_TSP_sched_imcast(reduce_address, msgsize, datatype,
-                                              ut_int_array(my_tree.children), num_children,
-                                              comm, sched, nvtcs, vtcs, &vtx_id);
+        /* Send the result to each child on its own, in chunk order: the send of chunk j to a
+         * child also waits for the send of chunk j-1 to it. A multicast would make every child
+         * wait for the slowest one. */
+        for (i = 0; i < num_children; i++) {
+            int child = *(int *) utarray_eltptr(my_tree.children, i);
+            int n = nvtcs;
+            if (j > 0) {
+                vtcs[n++] = bcast_send_id[i];
+            }
+            mpi_errno = MPIR_TSP_sched_isend(reduce_address, msgsize, datatype, child, comm,
+                                             sched, n, vtcs, &bcast_send_id[i]);
             MPIR_ERR_CHECK(mpi_errno);
         }
 
