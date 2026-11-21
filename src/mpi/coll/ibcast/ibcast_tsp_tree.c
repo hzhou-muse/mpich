@@ -23,7 +23,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
     int recv_id;
     int num_children;
     MPIR_Treealgo_tree_t my_tree;
-    int tag, vtx_id;
+    int vtx_id;
     int *send_id = NULL;        /* a forwarding rank's last send to each child */
     MPIR_CHKLMEM_DECL();
     MPIR_FUNC_ENTER;
@@ -58,14 +58,13 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
         ibcast_state->n_bytes = msgsize * type_size;
 #endif
 
-        tag = MPIR_TSP_sched_get_tag(sched);
 
         /* Receive message from parent */
         if (my_tree.parent != -1) {
 #ifdef HAVE_ERROR_CHECKING
             mpi_errno =
                 MPIR_TSP_sched_irecv_status((char *) buffer + offset * extent, msgsize,
-                                            datatype, my_tree.parent, tag, comm,
+                                            datatype, my_tree.parent, comm,
                                             &ibcast_state->status, sched, 0, NULL, &recv_id);
             MPIR_ERR_CHECK(mpi_errno);
             MPIR_TSP_sched_cb(&MPII_Ibcast_sched_test_length, ibcast_state, sched, 1, &recv_id,
@@ -73,7 +72,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
 #else
             mpi_errno =
                 MPIR_TSP_sched_irecv((char *) buffer + offset * extent, msgsize, datatype,
-                                     my_tree.parent, tag, comm, sched, 0, NULL, &recv_id);
+                                     my_tree.parent, comm, sched, 0, NULL, &recv_id);
             MPIR_ERR_CHECK(mpi_errno);
 #endif
         }
@@ -82,7 +81,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
             /* The root multicasts to the children. Its multicasts have no dependencies, so they
              * start in chunk order. */
             mpi_errno = MPIR_TSP_sched_imcast((char *) buffer + offset * extent, msgsize, datatype,
-                                              ut_int_array(my_tree.children), num_children, tag,
+                                              ut_int_array(my_tree.children), num_children,
                                               comm, sched, 0, NULL, &vtx_id);
             MPIR_ERR_CHECK(mpi_errno);
         } else if (num_children) {
@@ -97,7 +96,7 @@ int MPIR_TSP_Ibcast_sched_intra_tree(void *buffer, MPI_Aint count, MPI_Datatype 
                     vtcs[nvtcs++] = send_id[c];
                 }
                 mpi_errno = MPIR_TSP_sched_isend((char *) buffer + offset * extent, msgsize,
-                                                 datatype, ut_int_array(my_tree.children)[c], tag,
+                                                 datatype, ut_int_array(my_tree.children)[c],
                                                  comm, sched, nvtcs, vtcs, &send_id[c]);
                 MPIR_ERR_CHECK(mpi_errno);
             }
