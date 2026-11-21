@@ -30,6 +30,7 @@ int MPIR_TSP_Iallreduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI
     int sink_id;
     int nvtcs;
     int tag, vtx_id;
+    int send_id = -1;
     int root = 0;
     MPIR_CHKLMEM_DECL();
 
@@ -126,6 +127,11 @@ int MPIR_TSP_Iallreduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI
                 /* wait for the previous allreduce to complete, before posting the next receive */
                 vtcs[0] = reduce_id[i - 1];
                 nvtcs = 1;
+                /* the receives from a child go in chunk order: recv_id[i] is still the receive
+                 * of the previous chunk */
+                if (j > 0) {
+                    vtcs[nvtcs++] = recv_id[i];
+                }
             }
 
             mpi_errno = MPIR_TSP_sched_irecv(recv_address, msgsize, datatype, child, tag, comm,
@@ -172,11 +178,15 @@ int MPIR_TSP_Iallreduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI
                 vtcs[0] = reduce_id[num_children - 1];
         }
 
-        /* send data to the parent */
+        /* send data to the parent, in chunk order: each send also waits for the send of the
+         * previous chunk */
         if (rank != root) {
+            if (send_id != -1) {
+                vtcs[nvtcs++] = send_id;
+            }
             mpi_errno =
                 MPIR_TSP_sched_isend(reduce_address, msgsize, datatype, my_tree.parent, tag, comm,
-                                     sched, nvtcs, vtcs, &vtx_id);
+                                     sched, nvtcs, vtcs, &send_id);
             MPIR_ERR_CHECK(mpi_errno);
         }
 

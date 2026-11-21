@@ -36,6 +36,7 @@ int MPIR_TSP_Ireduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI_Ai
     int dtcopy_id = -1;
     int nvtcs;
     int tag;
+    int send_id = -1;
     MPIR_CHKLMEM_DECL();
 
     MPIR_FUNC_ENTER;
@@ -178,6 +179,11 @@ int MPIR_TSP_Ireduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI_Ai
             } else {
                 vtcs[0] = reduce_id[i - 1];
                 nvtcs = 1;
+                /* the receives from a child go in chunk order: recv_id[i] is still the receive
+                 * of the previous chunk */
+                if (j > 0) {
+                    vtcs[nvtcs++] = recv_id[i];
+                }
             }
 
             mpi_errno = MPIR_TSP_sched_irecv(recv_address, msgsize, datatype, child, tag, comm,
@@ -223,11 +229,17 @@ int MPIR_TSP_Ireduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI_Ai
                 vtcs[0] = reduce_id[num_children - 1];
         }
 
+        /* a rank sends its chunks in order, to the parent or, from the tree root, to the root:
+         * each send also waits for the send of the previous chunk */
+        if (send_id != -1) {
+            vtcs[nvtcs++] = send_id;
+        }
+
         /* send data to the parent */
         if (!is_tree_root) {
             mpi_errno =
                 MPIR_TSP_sched_isend(reduce_address, msgsize, datatype, my_tree.parent, tag, comm,
-                                     sched, nvtcs, vtcs, &vtx_id);
+                                     sched, nvtcs, vtcs, &send_id);
             MPIR_ERR_CHECK(mpi_errno);
         }
 
@@ -236,7 +248,7 @@ int MPIR_TSP_Ireduce_sched_intra_tree(const void *sendbuf, void *recvbuf, MPI_Ai
             if (is_tree_root) { /* tree_root sends data to root */
                 mpi_errno =
                     MPIR_TSP_sched_isend(reduce_address, msgsize, datatype, root, tag, comm, sched,
-                                         nvtcs, vtcs, &vtx_id);
+                                         nvtcs, vtcs, &send_id);
             } else if (is_root) {       /* root receives data from tree_root */
                 mpi_errno =
                     MPIR_TSP_sched_irecv((char *) recvbuf + offset * extent, msgsize, datatype,
