@@ -19,7 +19,7 @@ int MPIR_TSP_Iallreduce_sched_intra_ring(const void *sendbuf, void *recvbuf, MPI
     int nranks, is_inplace, rank;
     MPI_Aint extent;
     MPI_Aint *cnts, *displs;
-    int recv_id, *reduce_id, nvtcs, vtcs;
+    int recv_id, *reduce_id, nvtcs, vtcs[2], send_id = -1;
     int send_rank, recv_rank, total_count;
     void *tmpbuf;
     int tag, vtx_id;
@@ -77,11 +77,13 @@ int MPIR_TSP_Iallreduce_sched_intra_ring(const void *sendbuf, void *recvbuf, MPI
         mpi_errno = MPIR_Sched_next_tag(comm, &tag);
         MPIR_ERR_CHECK(mpi_errno);
 
-        nvtcs = (i == 0) ? 0 : 1;
-        vtcs = (i == 0) ? 0 : reduce_id[(i - 1) % 2];
+        nvtcs = 0;
+        if (i > 0) {
+            vtcs[nvtcs++] = reduce_id[(i - 1) % 2];
+        }
         mpi_errno =
             MPIR_TSP_sched_irecv(tmpbuf, cnts[recv_rank], datatype, src, tag, comm, sched, nvtcs,
-                                 &vtcs, &recv_id);
+                                 vtcs, &recv_id);
         MPIR_ERR_CHECK(mpi_errno);
 
         mpi_errno =
@@ -91,9 +93,13 @@ int MPIR_TSP_Iallreduce_sched_intra_ring(const void *sendbuf, void *recvbuf, MPI
 
         MPIR_ERR_CHECK(mpi_errno);
 
+        /* the sends to dst go in step order */
+        if (i > 0) {
+            vtcs[nvtcs++] = send_id;
+        }
         mpi_errno =
             MPIR_TSP_sched_isend((char *) recvbuf + displs[send_rank] * extent, cnts[send_rank],
-                                 datatype, dst, tag, comm, sched, nvtcs, &vtcs, &vtx_id);
+                                 datatype, dst, tag, comm, sched, nvtcs, vtcs, &send_id);
         MPIR_ERR_CHECK(mpi_errno);
     }
     MPIR_CHKLMEM_MALLOC(reduce_id, 2 * sizeof(int));
