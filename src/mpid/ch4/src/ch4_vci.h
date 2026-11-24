@@ -308,6 +308,15 @@ MPL_STATIC_INLINE_PREFIX int MPIDI_get_vci(int flag, MPIR_Comm * comm_ptr,
 
 MPL_STATIC_INLINE_PREFIX int MPIDI_get_comm_vci(MPIR_Comm * comm_ptr)
 {
+    /* A stream comm communicates on its stream's vci, so requests created for it (e.g.
+     * collective schedules) must live there too; otherwise waiting on them progresses the
+     * wrong vci and never completes the operations on the stream vci. */
+    if (comm_ptr->stream_comm_type == MPIR_STREAM_COMM_SINGLE) {
+        return comm_ptr->stream_comm.single.vci_table[comm_ptr->rank];
+    } else if (comm_ptr->stream_comm_type == MPIR_STREAM_COMM_MULTIPLEX) {
+        int displ = comm_ptr->stream_comm.multiplex.vci_displs[comm_ptr->rank];
+        return comm_ptr->stream_comm.multiplex.vci_table[displ];
+    }
 #if MPIDI_CH4_VCI_METHOD == MPICH_VCI__COMM
     return MPIDI_hash_local_vci(comm_ptr->seq);
 #else
