@@ -184,6 +184,7 @@ int MPIX_Waitall_enqueue(int count, MPI_Request array_of_requests[],
                          MPI_Status * array_of_statuses);
 int MPIX_Allreduce_enqueue(const void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype,
                            MPI_Op op, MPI_Comm comm);
+int MPIX_Bcast_enqueue(void *buffer, int count, MPI_Datatype datatype, int root, MPI_Comm comm);
 int MPIX_Threadcomm_init(MPI_Comm comm, int num_threads, MPI_Comm * newthreadcomm);
 int MPIX_Threadcomm_free(MPI_Comm * threadcomm);
 int MPIX_Threadcomm_start(MPI_Comm threadcomm);
@@ -223,6 +224,8 @@ int MPIX_Irecv_enqueue_c(void *buf, MPI_Count count, MPI_Datatype datatype, int 
                          MPI_Comm comm, MPI_Request * request);
 int MPIX_Allreduce_enqueue_c(const void *sendbuf, void *recvbuf, MPI_Count count,
                              MPI_Datatype datatype, MPI_Op op, MPI_Comm comm);
+int MPIX_Bcast_enqueue_c(void *buffer, MPI_Count count, MPI_Datatype datatype, int root,
+                         MPI_Comm comm);
 
 int PMPIX_Async_start(MPIX_Async_poll_function * poll_fn, void *extra_state, MPIX_Stream stream);
 void *PMPIX_Async_get_state(MPIX_Async_thing async_thing);
@@ -313,6 +316,7 @@ int PMPIX_Waitall_enqueue(int count, MPI_Request array_of_requests[],
                           MPI_Status * array_of_statuses);
 int PMPIX_Allreduce_enqueue(const void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype,
                             MPI_Op op, MPI_Comm comm);
+int PMPIX_Bcast_enqueue(void *buffer, int count, MPI_Datatype datatype, int root, MPI_Comm comm);
 int PMPIX_Threadcomm_init(MPI_Comm comm, int num_threads, MPI_Comm * newthreadcomm);
 int PMPIX_Threadcomm_free(MPI_Comm * threadcomm);
 int PMPIX_Threadcomm_start(MPI_Comm threadcomm);
@@ -352,6 +356,8 @@ int PMPIX_Irecv_enqueue_c(void *buf, MPI_Count count, MPI_Datatype datatype, int
                           MPI_Comm comm, MPI_Request * request);
 int PMPIX_Allreduce_enqueue_c(const void *sendbuf, void *recvbuf, MPI_Count count,
                               MPI_Datatype datatype, MPI_Op op, MPI_Comm comm);
+int PMPIX_Bcast_enqueue_c(void *buffer, MPI_Count count, MPI_Datatype datatype, int root,
+                          MPI_Comm comm);
 
 #if defined(__cplusplus)
 }
