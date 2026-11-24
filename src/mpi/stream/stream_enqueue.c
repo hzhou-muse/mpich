@@ -653,6 +653,12 @@ int MPIR_Allreduce_enqueue_impl(const void *sendbuf, void *recvbuf,
     mpi_errno = MPIR_get_local_gpu_stream(comm_ptr, &gpu_stream);
     MPIR_ERR_CHECK(mpi_errno);
 
+    if (MPIR_Stream_fbox_allreduce(sendbuf, recvbuf, count, datatype, op, comm_ptr, gpu_stream,
+                                   &mpi_errno)) {
+        MPIR_ERR_CHECK(mpi_errno);
+        goto fn_exit;
+    }
+
     int is_contig;
     MPIR_Datatype_is_contig(datatype, &is_contig);
 
@@ -711,6 +717,134 @@ int MPIR_Allreduce_enqueue_impl(const void *sendbuf, void *recvbuf,
                              is_contig, p->tmp_buf, p->data_sz);
 
         MPL_gpu_launch_hostfn(gpu_stream, allred_stream_cleanup_cb, p);
+    }
+
+  fn_exit:
+    return mpi_errno;
+  fn_fail:
+    goto fn_exit;
+}
+
+/* bcast enqueue */
+struct bcast_data {
+    void *buffer;
+    MPI_Aint count;
+    MPI_Datatype datatype;
+    int root;
+    MPIR_Comm *comm_ptr;
+
+    void *host_buf;
+    void *tmp_buf;              /* noncontig datatype may require tmp_buf for localcopy */
+    MPI_Aint data_sz;
+};
+
+static void bcast_enqueue_cb(void *data)
+{
+    int mpi_errno;
+
+    /* avoid GPU functions */
+    MPIR_disable_gpu_tls = true;
+
+    struct bcast_data *p = data;
+    bool is_root = (p->comm_ptr->rank == p->root);
+
+    void *buf = p->buffer;
+    if (p->host_buf) {
+        if (is_root) {
+            HOST_SWAP_IN_CB(p->host_buf, p->count, p->datatype, p->tmp_buf, p->data_sz);
+        }
+        buf = p->host_buf;
+    }
+
+    mpi_errno = MPIR_Bcast_impl(buf, p->count, p->datatype, p->root, p->comm_ptr);
+    MPIR_Assertp(mpi_errno == MPI_SUCCESS);
+
+    if (p->host_buf && !is_root) {
+        HOST_SWAPBACK_IN_CB(p->host_buf, p->count, p->datatype, p->tmp_buf, p->data_sz);
+    }
+
+    if (!p->host_buf || is_root) {
+        /* we are done; non-root device buffers are cleaned up after the swap back */
+        if (p->host_buf) {
+            MPIR_free_buffer(p->host_buf, p->count, p->datatype);
+        }
+        MPIR_Comm_release(p->comm_ptr);
+        MPL_free(p->tmp_buf);
+        MPL_free(p);
+    }
+
+    MPIR_disable_gpu_tls = false;
+}
+
+static void bcast_stream_cleanup_cb(void *data)
+{
+    struct bcast_data *p = data;
+
+    MPIR_free_buffer(p->host_buf, p->count, p->datatype);
+
+    MPIR_Comm_release(p->comm_ptr);
+    MPL_free(p->tmp_buf);
+    MPL_free(p);
+}
+
+int MPIR_Bcast_enqueue_impl(void *buffer, MPI_Aint count, MPI_Datatype datatype, int root,
+                            MPIR_Comm * comm_ptr)
+{
+    int mpi_errno = MPI_SUCCESS;
+
+    MPL_gpu_stream_t gpu_stream;
+    mpi_errno = MPIR_get_local_gpu_stream(comm_ptr, &gpu_stream);
+    MPIR_ERR_CHECK(mpi_errno);
+
+    if (MPIR_Stream_fbox_bcast(buffer, count, datatype, root, comm_ptr, gpu_stream, &mpi_errno)) {
+        MPIR_ERR_CHECK(mpi_errno);
+        goto fn_exit;
+    }
+
+    int is_contig;
+    MPIR_Datatype_is_contig(datatype, &is_contig);
+
+#ifndef MPL_HAS_TLS
+    MPIR_ERR_CHKANDJUMP(!is_contig, mpi_errno, MPI_ERR_OTHER, "**gpu_enqueue_noncontig");
+#endif
+
+    struct bcast_data *p;
+    p = MPL_malloc(sizeof(struct bcast_data), MPL_MEM_OTHER);
+    MPIR_ERR_CHKANDJUMP(!p, mpi_errno, MPI_ERR_OTHER, "**nomem");
+
+    p->buffer = buffer;
+    p->count = count;
+    p->datatype = datatype;
+    p->root = root;
+    p->comm_ptr = comm_ptr;
+    MPIR_Comm_add_ref(comm_ptr);
+
+    p->host_buf = NULL;
+    p->tmp_buf = NULL;
+
+    MPI_Aint dt_size;
+    MPIR_Datatype_get_size_macro(datatype, dt_size);
+    p->data_sz = dt_size * count;
+
+    bool is_root = (comm_ptr->rank == root);
+    if (!MPIR_GPU_query_pointer_is_host(buffer)) {
+        p->host_buf = MPIR_alloc_buffer(count, datatype);
+        if (is_root) {
+            HOST_SWAP_STREAM(p->host_buf, buffer, count, datatype, &gpu_stream,
+                             is_contig, p->tmp_buf, p->data_sz);
+        } else if (!is_contig) {
+            p->tmp_buf = MPL_malloc(p->data_sz, MPL_MEM_OTHER);
+            MPIR_ERR_CHKANDJUMP(!p->tmp_buf, mpi_errno, MPI_ERR_OTHER, "**nomem");
+        }
+    }
+
+    MPL_gpu_launch_hostfn(gpu_stream, bcast_enqueue_cb, p);
+
+    if (p->host_buf && !is_root) {
+        HOST_SWAPBACK_STREAM(p->host_buf, buffer, count, datatype, &gpu_stream,
+                             is_contig, p->tmp_buf, p->data_sz);
+
+        MPL_gpu_launch_hostfn(gpu_stream, bcast_stream_cleanup_cb, p);
     }
 
   fn_exit:

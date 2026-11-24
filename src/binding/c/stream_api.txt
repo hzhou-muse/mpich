@@ -237,6 +237,14 @@ MPIX_Allreduce_enqueue:
     op: OPERATION, [operation]
     comm: COMMUNICATOR, [communicator]
 
+MPIX_Bcast_enqueue:
+    .desc: Enqueue a broadcast operation to a GPU stream that is associated with the local stream
+    buffer: BUFFER, direction=inout, [starting address of buffer]
+    count: POLYXFER_NUM_ELEM_NNI, [number of entries in buffer]
+    datatype: DATATYPE, [data type of buffer]
+    root: RANK, [rank of broadcast root]
+    comm: COMMUNICATOR, [communicator]
+
 MPIX_Stream_toint:
     .desc: converts MPIX_Stream to an integer handle
     .return: INTEGER

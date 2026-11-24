@@ -187,6 +187,8 @@ struct MPIR_Comm {
         struct {
             struct MPIR_Stream *stream;
             int *vci_table;
+            void *fbox;         /* MPL_gpu_fbox_group_t, if the GPU fastbox is on */
+            int fbox_carve;
         } single;
         struct {
             struct MPIR_Stream **local_streams;
@@ -273,6 +275,14 @@ void MPIR_stream_comm_init(MPIR_Comm * comm_ptr);
 void MPIR_stream_comm_free(MPIR_Comm * comm_ptr);
 int MPIR_Comm_copy_stream(MPIR_Comm * oldcomm, MPIR_Comm * newcomm);
 int MPIR_get_local_gpu_stream(MPIR_Comm * comm_ptr, MPL_gpu_stream_t * gpu_stream);
+int MPIR_Stream_comm_fbox_init(MPIR_Comm * parent, MPIR_Comm * newcomm,
+                               struct MPIR_Stream *stream_ptr);
+void MPIR_Stream_comm_fbox_free(MPIR_Comm * comm);
+bool MPIR_Stream_fbox_allreduce(const void *sendbuf, void *recvbuf, MPI_Aint count,
+                                MPI_Datatype datatype, MPI_Op op, MPIR_Comm * comm_ptr,
+                                MPL_gpu_stream_t stream, int *mpi_errno);
+bool MPIR_Stream_fbox_bcast(void *buffer, MPI_Aint count, MPI_Datatype datatype, int root,
+                            MPIR_Comm * comm_ptr, MPL_gpu_stream_t stream, int *mpi_errno);
 
 MPL_STATIC_INLINE_PREFIX MPIR_Lpid MPIR_comm_rank_to_lpid(MPIR_Comm * comm_ptr, int rank)
 {
