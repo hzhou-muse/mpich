@@ -73,6 +73,7 @@ void MPIR_stream_comm_init(MPIR_Comm * comm)
 void MPIR_stream_comm_free(MPIR_Comm * comm)
 {
     if (comm->stream_comm_type == MPIR_STREAM_COMM_SINGLE) {
+        MPIR_Stream_comm_fbox_free(comm);
         if (comm->stream_comm.single.stream) {
             MPIR_Stream_free_impl(comm->stream_comm.single.stream);
         }
@@ -110,6 +111,8 @@ int MPIR_Comm_copy_stream(MPIR_Comm * oldcomm, MPIR_Comm * newcomm)
 
         newcomm->stream_comm.single.stream = stream_ptr;
         newcomm->stream_comm.single.vci_table = vci_table;
+        /* the fastbox ring set belongs to the original comm only */
+        newcomm->stream_comm.single.fbox = NULL;
 
         if (stream_ptr) {
             MPIR_Object_add_ref(stream_ptr);
@@ -280,6 +283,9 @@ int MPIR_Stream_comm_create_impl(MPIR_Comm * comm_ptr, MPIR_Stream * stream_ptr,
     if (stream_ptr) {
         MPIR_Object_add_ref(stream_ptr);
     }
+
+    mpi_errno = MPIR_Stream_comm_fbox_init(comm_ptr, *newcomm_ptr, stream_ptr);
+    MPIR_ERR_CHECK(mpi_errno);
 
   fn_exit:
     return mpi_errno;

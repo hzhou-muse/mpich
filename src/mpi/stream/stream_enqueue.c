@@ -653,6 +653,12 @@ int MPIR_Allreduce_enqueue_impl(const void *sendbuf, void *recvbuf,
     mpi_errno = MPIR_get_local_gpu_stream(comm_ptr, &gpu_stream);
     MPIR_ERR_CHECK(mpi_errno);
 
+    if (MPIR_Stream_fbox_allreduce(sendbuf, recvbuf, count, datatype, op, comm_ptr, gpu_stream,
+                                   &mpi_errno)) {
+        MPIR_ERR_CHECK(mpi_errno);
+        goto fn_exit;
+    }
+
     int is_contig;
     MPIR_Datatype_is_contig(datatype, &is_contig);
 
@@ -789,6 +795,11 @@ int MPIR_Bcast_enqueue_impl(void *buffer, MPI_Aint count, MPI_Datatype datatype,
     MPL_gpu_stream_t gpu_stream;
     mpi_errno = MPIR_get_local_gpu_stream(comm_ptr, &gpu_stream);
     MPIR_ERR_CHECK(mpi_errno);
+
+    if (MPIR_Stream_fbox_bcast(buffer, count, datatype, root, comm_ptr, gpu_stream, &mpi_errno)) {
+        MPIR_ERR_CHECK(mpi_errno);
+        goto fn_exit;
+    }
 
     int is_contig;
     MPIR_Datatype_is_contig(datatype, &is_contig);
