@@ -172,4 +172,6 @@ void MPL_gpu_event_init_count(MPL_gpu_event_t * var, int count);
 void MPL_gpu_event_complete(MPL_gpu_event_t * var);
 bool MPL_gpu_event_is_complete(MPL_gpu_event_t * var);
 
+#include "mpl_gpu_fbox.h"
+
 #endif /* ifndef MPL_GPU_H_INCLUDED */
